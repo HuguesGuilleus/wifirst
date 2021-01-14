@@ -19,12 +19,14 @@ func main() {
 	t := flag.String("t", "https://github.com/", "The test page")
 	l := flag.String("l", "", "The login")
 	p := flag.String("p", "", "The password")
-	dur := flag.Duration("dur", time.Minute, "Duration between two authentification")
+	dur := flag.Duration("dur", 0, "Duration between two authentification, zero for only one authentification")
 	flag.Parse()
 
 	run(*t, *l, *p)
-	for range time.Tick(*dur) {
-		run(*t, *l, *p)
+	if *dur > 0 {
+		for range time.Tick(*dur) {
+			run(*t, *l, *p)
+		}
 	}
 }
 
@@ -37,13 +39,11 @@ func run(t, l, p string) {
 	log.Println("[STATUS] no connected")
 
 	cl = newClient()
-
 	m1 := gm("authenticity_token")
-	if err := recup(&cl, "https://connect.wifirst.net/?perform=true", nil, m1); err != nil {
+	if err := recup(&cl, "https://connect.wifirst.net/?perform=true&ignore_conflicts=true&reason=Device", nil, m1); err != nil {
 		log.Println("[ERROR]", err)
 		return
 	}
-	log.Printf("m1: %#+v\n", m1)
 
 	m2 := gm("username", "password")
 	if err := recup(&cl, "https://selfcare.wifirst.net/sessions", url.Values{
@@ -55,7 +55,6 @@ func run(t, l, p string) {
 		log.Println("[ERROR]", err)
 		return
 	}
-	log.Printf("m2: %#+v\n", m2)
 
 	if err := recup(&cl, "https://wireless.wifirst.net:8090/goform/HtmlLoginRequest", url.Values{
 		"commit":      []string{"Se connecter"},
@@ -86,7 +85,7 @@ func gm(keys ...string) map[string]string {
 	return m
 }
 
-// With the client cl, Get or POST (value is not nil) a request and set teh keys
+// With the client cl, Get or POST (value is not nil) a request and set the keys
 // from the response body.
 func recup(cl *http.Client, u string, form url.Values, keys map[string]string) error {
 	var rep *http.Response
@@ -97,7 +96,7 @@ func recup(cl *http.Client, u string, form url.Values, keys map[string]string) e
 		rep, err = cl.PostForm(u, form)
 	}
 	if err != nil {
-		return fmt.Errorf("Request to %q fail:\r\n\t%v", u, err)
+		return fmt.Errorf("Request to %q fail: %w", u, err)
 	} else if rep.StatusCode != http.StatusOK {
 		return fmt.Errorf("Request to %q fail: %q", u, rep.Status)
 	}
@@ -106,7 +105,7 @@ func recup(cl *http.Client, u string, form url.Values, keys map[string]string) e
 	body := string(_body)
 	rep.Body.Close()
 	if err != nil {
-		return fmt.Errorf("Read body from %q fail:\r\n\t%v", u, err)
+		return fmt.Errorf("Read body from %q fail:\r\n\t%w", u, err)
 	}
 
 	for k := range keys {
