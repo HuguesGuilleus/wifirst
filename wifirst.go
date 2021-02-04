@@ -19,18 +19,19 @@ func main() {
 	t := flag.String("t", "https://github.com/", "The test page")
 	l := flag.String("l", "", "The login")
 	p := flag.String("p", "", "The password")
+	force := flag.Bool("f", false, "Force the connexion if multiple connexion exist.")
 	dur := flag.Duration("dur", 0, "Duration between two authentification, zero for only one authentification")
 	flag.Parse()
 
-	run(*t, *l, *p)
+	run(*t, *l, *p, *force)
 	if *dur > 0 {
 		for range time.Tick(*dur) {
-			run(*t, *l, *p)
+			run(*t, *l, *p, *force)
 		}
 	}
 }
 
-func run(t, l, p string) {
+func run(t, l, p string, force bool) {
 	cl := newClient()
 	if err := recup(&cl, t, nil, nil); err == nil {
 		log.Println("[STATUS] Already connected")
@@ -40,9 +41,16 @@ func run(t, l, p string) {
 
 	cl = newClient()
 	m1 := gm("authenticity_token")
-	if err := recup(&cl, "https://connect.wifirst.net/?perform=true&ignore_conflicts=true&reason=Device", nil, m1); err != nil {
-		log.Println("[ERROR]", err)
-		return
+	if force {
+		if err := recup(&cl, "https://connect.wifirst.net/?perform=true&ignore_conflicts=true&reason=Device", nil, m1); err != nil {
+			log.Println("[ERROR]", err)
+			return
+		}
+	} else {
+		if err := recup(&cl, "https://connect.wifirst.net/?perform=true", nil, m1); err != nil {
+			log.Println("[ERROR]", err)
+			return
+		}
 	}
 
 	m2 := gm("username", "password")
