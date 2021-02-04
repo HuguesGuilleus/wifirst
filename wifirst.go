@@ -34,7 +34,7 @@ func main() {
 func run(t, l, p string, force bool) {
 	cl := newClient()
 	if err := recup(&cl, t, nil, nil); err == nil {
-		log.Println("[STATUS] Already connected")
+		log.Println("[CONNECTED] already connected")
 		return
 	}
 	log.Println("[STATUS] no connected")
@@ -75,7 +75,7 @@ func run(t, l, p string, force bool) {
 		log.Println("[ERROR]", err)
 		return
 	}
-	log.Println("end of the connexion opration")
+	log.Println("[CONNECTED] end of the connexion opration")
 }
 
 // Create a new Client with Cookie Jar.
@@ -108,6 +108,7 @@ func recup(cl *http.Client, u string, form url.Values, keys map[string]string) e
 	} else if rep.StatusCode != http.StatusOK {
 		return fmt.Errorf("Request to %q fail: %q", u, rep.Status)
 	}
+	log.Println("[REQUEST]", u)
 
 	_body, err := ioutil.ReadAll(rep.Body)
 	body := string(_body)
