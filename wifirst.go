@@ -1,130 +1,94 @@
-// This code is based on:
-// https://github.com/cfz42/wifirst-connect/blob/master/wifirst-connect.sh
-
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
-	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
-	"net/http/cookiejar"
-	"net/url"
-	"regexp"
-	"time"
 )
 
+type SessionsCode struct {
+	Radius struct {
+		Login    string `json:"login"`
+		Password string `json:"password"`
+	} `json:"radius"`
+}
+
 func main() {
-	t := flag.String("t", "https://github.com/", "The test page")
 	l := flag.String("l", "", "The login")
 	p := flag.String("p", "", "The password")
-	force := flag.Bool("f", false, "Force the connexion if multiple connexion exist.")
-	dur := flag.Duration("dur", 0, "Duration between two authentification, zero for only one authentification")
 	flag.Parse()
-
-	run(*t, *l, *p, *force)
-	if *dur > 0 {
-		for range time.Tick(*dur) {
-			run(*t, *l, *p, *force)
-		}
-	}
-}
-
-func run(t, l, p string, force bool) {
-	cl := newClient()
-	if err := recup(&cl, t, nil, nil); err == nil {
-		log.Println("[CONNECTED] already connected")
-		return
-	}
-	log.Println("[STATUS] no connected")
-
-	cl = newClient()
-	m1 := gm("authenticity_token")
-	if force {
-		if err := recup(&cl, "https://connect.wifirst.net/?perform=true&ignore_conflicts=true&reason=Device", nil, m1); err != nil {
-			log.Println("[ERROR]", err)
-			return
-		}
-	} else {
-		if err := recup(&cl, "https://connect.wifirst.net/?perform=true", nil, m1); err != nil {
-			log.Println("[ERROR]", err)
-			return
-		}
-	}
-
-	m2 := gm("username", "password")
-	if err := recup(&cl, "https://selfcare.wifirst.net/sessions", url.Values{
-		"utf8":               []string{"✓"},
-		"authenticity_token": []string{m1["authenticity_token"]},
-		"login":              []string{l},
-		"password":           []string{p},
-	}, m2); err != nil {
-		log.Println("[ERROR]", err)
+	if *l == "" || *p == "" {
+		flag.Usage()
 		return
 	}
 
-	if err := recup(&cl, "https://wireless.wifirst.net:8090/goform/HtmlLoginRequest", url.Values{
-		"commit":      []string{"Se connecter"},
-		"username":    []string{m2["username"]},
-		"password":    []string{m2["password"]},
-		"qos_class":   []string{""},
-		"success_url": []string{"https://apps.wifirst.net/?redirected=true"},
-		"error_url":   []string{"https://connect.wifirst.net/login_error"},
-	}, nil); err != nil {
-		log.Println("[ERROR]", err)
-		return
-	}
-	log.Println("[CONNECTED] end of the connexion opration")
+	boxToken := getBoxToken()
+	sessionCode := getSessionCode(boxToken, *l, *p)
+	sendToken(sessionCode)
 }
 
-// Create a new Client with Cookie Jar.
-func newClient() http.Client {
-	j, _ := cookiejar.New(nil)
-	return http.Client{Jar: j}
-}
-
-// Generate the string map
-func gm(keys ...string) map[string]string {
-	m := make(map[string]string, len(keys))
-	for _, k := range keys {
-		m[k] = ""
-	}
-	return m
-}
-
-// With the client cl, Get or POST (value is not nil) a request and set the keys
-// from the response body.
-func recup(cl *http.Client, u string, form url.Values, keys map[string]string) error {
-	var rep *http.Response
-	var err error
-	if form == nil {
-		rep, err = cl.Get(u)
-	} else {
-		rep, err = cl.PostForm(u, form)
-	}
+func getBoxToken() string {
+	const url = "https://wireless.wifirst.net:8099/index.txt"
+	log.Println("GET", url)
+	boxTokenResponse, err := http.Get(url)
 	if err != nil {
-		return fmt.Errorf("Request to %q fail: %w", u, err)
-	} else if rep.StatusCode != http.StatusOK {
-		return fmt.Errorf("Request to %q fail: %q", u, rep.Status)
+		log.Fatal(err)
 	}
-	log.Println("[REQUEST]", u)
+	defer boxTokenResponse.Body.Close()
 
-	_body, err := ioutil.ReadAll(rep.Body)
-	body := string(_body)
-	rep.Body.Close()
+	boxToken, err := io.ReadAll(boxTokenResponse.Body)
 	if err != nil {
-		return fmt.Errorf("Read body from %q fail:\r\n\t%w", u, err)
+		log.Fatal(err)
 	}
 
-	for k := range keys {
-		r := regexp.MustCompile(`.*` + k + `.*value="(.*)".*`)
-		v := r.ReplaceAllString(r.FindString(body), "$1")
-		if v == "" {
-			return fmt.Errorf("Get the info %q not found in %q", k, u)
-		}
-		keys[k] = v
+	return string(boxToken)
+}
+
+func getSessionCode(boxToken, login, password string) (sessionsCode SessionsCode) {
+	data, _ := json.Marshal(map[string]string{
+		"email":       login,
+		"password":    password,
+		"box_token":   string(boxToken),
+		"fragment_id": "12514",
+	})
+
+	sessionsResponse := post(
+		"https://portal-front.wifirst.net/api/sessions",
+		"application/json",
+		data,
+	)
+	defer sessionsResponse.Body.Close()
+
+	err := json.NewDecoder(sessionsResponse.Body).Decode(&sessionsCode)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	return nil
+	return
+}
+
+func sendToken(sessionsCode SessionsCode) {
+	loginResponse := post(
+		"https://wireless.wifirst.net:8090/goform/HtmlLoginRequest",
+		"application/x-www-form-urlencoded",
+		[]byte("username="+sessionsCode.Radius.Login+
+			"&password="+sessionsCode.Radius.Password+
+			"&success_url=https%3A%2F%2Fwww.google.fr%2F&error_url=https%3A%2F%2Fportal-front.wifirst.net%2Fconnect-error&update_session=0"),
+	)
+
+	defer loginResponse.Body.Close()
+	io.Copy(io.Discard, loginResponse.Body)
+}
+
+// Make a POST HTTP request
+func post(url, contentType string, data []byte) *http.Response {
+	log.Println("POST", url)
+	response, err := http.Post(url, contentType, bytes.NewReader(data))
+	if err != nil {
+		log.Fatal(err)
+	}
+	return response
 }
