@@ -31,7 +31,8 @@ func main() {
 }
 
 func getBoxToken() string {
-	const url = "https://wireless.wifirst.net:8099/index.txt"
+	const url = "https://portal-front.wifirst.net/"
+
 	log.Println("GET", url)
 	boxTokenResponse, err := http.Get(url)
 	if err != nil {
@@ -72,7 +73,7 @@ func getSessionCode(boxToken, login, password string) (sessionsCode SessionsCode
 
 func sendToken(sessionsCode SessionsCode) {
 	loginResponse := post(
-		"https://wireless.wifirst.net:8090/goform/HtmlLoginRequest",
+		"https://wireless.wifirst.net/goform/HtmlLoginRequest",
 		"application/x-www-form-urlencoded",
 		[]byte("username="+sessionsCode.Radius.Login+
 			"&password="+sessionsCode.Radius.Password+
