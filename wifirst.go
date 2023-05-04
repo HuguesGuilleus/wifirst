@@ -30,7 +30,7 @@ func main() {
 
 func getPortal() *url.URL {
 	client := http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return fmt.Errorf("One request") }}
-	response, err := client.Get("http://detectportal.firefox.com/sucess.txt")
+	response, err := client.Get("http://detectportal.firefox.com/success.txt")
 	if response == nil {
 		log.Fatal(err)
 	}
